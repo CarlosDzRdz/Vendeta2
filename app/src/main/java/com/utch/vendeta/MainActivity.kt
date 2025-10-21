@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+
 @Composable
 fun VendetaScreen() {
     val context = LocalContext.current
