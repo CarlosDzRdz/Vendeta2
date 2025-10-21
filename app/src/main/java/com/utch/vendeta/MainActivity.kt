@@ -20,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -28,8 +27,11 @@ import com.google.android.gms.wearable.Wearable
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.utch.vendeta.ui.theme.VendetaTheme
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
-// (Las clases Riddle y la lista gameRiddles se mantienen igual)
 data class Riddle(
     val clue: String,
     val correctAnswer: String
@@ -42,7 +44,6 @@ val gameRiddles = listOf(
     Riddle(clue = "Donde las voces se elevan sin gritar y las emociones se representan sin palabras. ¿Dónde estoy?", correctAnswer = "AUDITORIO_NIVEL_4"),
     Riddle(clue = "Aquí se cultiva el cuerpo con esfuerzo y disciplina. El sudor es parte del aprendizaje.", correctAnswer = "CANCHAS_NIVEL_5")
 )
-
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,26 +58,60 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-
 @Composable
 fun VendetaScreen() {
     val context = LocalContext.current
     var currentRiddleIndex by remember { mutableStateOf(0) }
     var gameFinished by remember { mutableStateOf(false) }
+    var connectedNodes by remember { mutableStateOf<String>("Buscando dispositivos...") }
     val currentRiddle = gameRiddles[currentRiddleIndex]
 
-    // ---- NUEVO: Cliente para comunicación con el reloj ----
     val messageClient = Wearable.getMessageClient(context)
+    val nodeClient = Wearable.getNodeClient(context)
 
-    // --- NUEVA FUNCIÓN: Para enviar mensajes al reloj ---
+    // ⭐ NUEVO: Verificar dispositivos conectados al inicio
+    LaunchedEffect(Unit) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val nodes = nodeClient.connectedNodes.await()
+                val nodeInfo = if (nodes.isEmpty()) {
+                    "❌ Sin dispositivos conectados"
+                } else {
+                    "✅ Conectado: ${nodes.joinToString { it.displayName }}"
+                }
+                connectedNodes = nodeInfo
+                Log.d("Vendeta", "Nodos conectados: $nodeInfo")
+            } catch (e: Exception) {
+                connectedNodes = "⚠️ Error al buscar dispositivos"
+                Log.e("Vendeta", "Error buscando nodos", e)
+            }
+        }
+    }
+
+    // ⭐ MEJORADO: Función con logs y verificación
     fun sendMessageToWearable(result: String) {
-        // Busca los dispositivos conectados (nodos)
-        Wearable.getNodeClient(context).connectedNodes.addOnSuccessListener { nodes ->
-            nodes.forEach { node ->
-                // Envía el mensaje a cada nodo encontrado
-                messageClient.sendMessage(node.id, "/game_result", result.toByteArray())
-                    .addOnSuccessListener { Log.d("Vendeta", "Mensaje '$result' enviado a ${node.displayName}") }
-                    .addOnFailureListener { e -> Log.e("Vendeta", "Error al enviar mensaje", e) }
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val nodes = nodeClient.connectedNodes.await()
+                Log.d("Vendeta", "📤 Intentando enviar '$result' a ${nodes.size} nodos")
+
+                if (nodes.isEmpty()) {
+                    Log.w("Vendeta", "⚠️ No hay nodos conectados")
+                    return@launch
+                }
+
+                nodes.forEach { node ->
+                    messageClient.sendMessage(node.id, "/game_result", result.toByteArray())
+                        .addOnSuccessListener {
+                            Log.d("Vendeta", "✅ Mensaje '$result' enviado a ${node.displayName}")
+                        }
+                        .addOnFailureListener { e ->
+                            Log.e("Vendeta", "❌ Error al enviar a ${node.displayName}", e)
+                        }
+                        .await()
+                }
+            } catch (e: Exception) {
+                Log.e("Vendeta", "💥 Error crítico al enviar mensaje", e)
             }
         }
     }
@@ -93,7 +128,6 @@ fun VendetaScreen() {
         }
 
         if (scannedText == currentRiddle.correctAnswer) {
-            // ---- MODIFICADO: Envía "SUCCESS" al reloj ----
             sendMessageToWearable("SUCCESS")
             if (currentRiddleIndex < gameRiddles.size - 1) {
                 currentRiddleIndex++
@@ -102,7 +136,6 @@ fun VendetaScreen() {
                 gameFinished = true
             }
         } else {
-            // ---- MODIFICADO: Envía "FAILURE" al reloj ----
             sendMessageToWearable("FAILURE")
             Toast.makeText(context, "Incorrecto. Intenta de nuevo.", Toast.LENGTH_LONG).show()
         }
@@ -121,7 +154,6 @@ fun VendetaScreen() {
         }
     }
 
-    // --- El resto de la UI (Column, Text, Button) se mantiene igual ---
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -131,6 +163,15 @@ fun VendetaScreen() {
             text = "Vendeta",
             fontSize = 32.sp,
             fontWeight = FontWeight.Bold,
+        )
+
+        // ⭐ NUEVO: Mostrar estado de conexión
+        Text(
+            text = connectedNodes,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.secondary,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(8.dp)
         )
 
         if (gameFinished) {
@@ -166,6 +207,17 @@ fun VendetaScreen() {
                 }
             }) {
                 Text(text = "Escanear Pista")
+            }
+
+            // ⭐ NUEVO: Botones de prueba
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { sendMessageToWearable("SUCCESS") }) {
+                    Text("Prueba ✓")
+                }
+                Button(onClick = { sendMessageToWearable("FAILURE") }) {
+                    Text("Prueba ✗")
+                }
             }
         }
     }
