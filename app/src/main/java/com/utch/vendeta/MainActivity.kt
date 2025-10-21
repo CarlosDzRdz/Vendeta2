@@ -101,17 +101,30 @@ fun VendetaScreen() {
                 }
 
                 nodes.forEach { node ->
+                    // Método 1: Message API (original)
                     messageClient.sendMessage(node.id, "/game_result", result.toByteArray())
                         .addOnSuccessListener {
-                            Log.d("Vendeta", "✅ Mensaje '$result' enviado a ${node.displayName}")
+                            Log.d("Vendeta", "✅ Mensaje enviado a ${node.displayName}")
                         }
                         .addOnFailureListener { e ->
-                            Log.e("Vendeta", "❌ Error al enviar a ${node.displayName}", e)
+                            Log.e("Vendeta", "❌ Error con Message API", e)
                         }
                         .await()
+
+                    // Método 2: Data API (para Pixel Watch emulator)
+                    val putDataReq = com.google.android.gms.wearable.PutDataRequest.create("/game_result").apply {
+                        data = result.toByteArray()
+                    }
+                    Wearable.getDataClient(context).putDataItem(putDataReq)
+                        .addOnSuccessListener {
+                            Log.d("Vendeta", "✅ Data enviada via Data API")
+                        }
+                        .addOnFailureListener { e ->
+                            Log.e("Vendeta", "❌ Error con Data API", e)
+                        }
                 }
             } catch (e: Exception) {
-                Log.e("Vendeta", "💥 Error crítico al enviar mensaje", e)
+                Log.e("Vendeta", "💥 Error crítico", e)
             }
         }
     }
