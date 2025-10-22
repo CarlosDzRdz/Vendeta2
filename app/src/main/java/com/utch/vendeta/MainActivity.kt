@@ -112,16 +112,7 @@ fun VendetaScreen() {
                         .await()
 
                     // Método 2: Data API (para Pixel Watch emulator)
-                    val putDataReq = com.google.android.gms.wearable.PutDataRequest.create("/game_result").apply {
-                        data = result.toByteArray()
-                    }
-                    Wearable.getDataClient(context).putDataItem(putDataReq)
-                        .addOnSuccessListener {
-                            Log.d("Vendeta", "✅ Data enviada via Data API")
-                        }
-                        .addOnFailureListener { e ->
-                            Log.e("Vendeta", "❌ Error con Data API", e)
-                        }
+
                 }
             } catch (e: Exception) {
                 Log.e("Vendeta", "💥 Error crítico", e)
